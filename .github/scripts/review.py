@@ -22,7 +22,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-MODEL = os.environ.get("REVIEW_MODEL", "qwen2.5-coder:0.5b")
+MODEL = os.environ.get("REVIEW_MODEL", "qwen2.5-coder:1.5b")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
 PR_NUMBER = os.environ.get("PR_NUMBER", "")
 

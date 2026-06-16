@@ -26,8 +26,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_DIR = (REPO_ROOT / "src").resolve()
 
-MODEL = os.environ.get("IMPROVE_MODEL", "qwen2.5-coder:0.5b")
+MODEL = os.environ.get("IMPROVE_MODEL", "qwen2.5-coder:1.5b")
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434")
+
+# Generation backend: "ollama" (qwen) or "gpt2" (retro HuggingFace base model).
+# The workflow flips a coin and sets this; gpt2 is gloriously incoherent and its
+# output sails straight into the filename-fallback path. That's the fun.
+BACKEND = os.environ.get("IMPROVE_BACKEND", "ollama").lower()
+GPT2_MODEL = os.environ.get("IMPROVE_GPT2_MODEL", "gpt2")
 
 # Trimming budgets — a happy medium: enough context to be interesting without
 # making CPU prompt-processing crawl.
@@ -36,10 +42,10 @@ MAX_TOTAL_SRC_BYTES = int(os.environ.get("IMPROVE_MAX_TOTAL_SRC_BYTES", "32000")
 MAX_ISSUES = int(os.environ.get("IMPROVE_MAX_ISSUES", "6"))
 MAX_ISSUE_BODY_CHARS = int(os.environ.get("IMPROVE_MAX_ISSUE_BODY_CHARS", "1000"))
 # Output size: num_predict caps generated tokens (the main driver of runtime on
-# CPU); num_ctx is total room. ~3k tokens ≈ a hearty file or two, not a novella.
-NUM_PREDICT = int(os.environ.get("IMPROVE_NUM_PREDICT", "3072"))
+# CPU). Kept modest so a 1.5b run finishes comfortably under ~5 minutes.
+NUM_PREDICT = int(os.environ.get("IMPROVE_NUM_PREDICT", "1024"))
 NUM_CTX = int(os.environ.get("IMPROVE_NUM_CTX", "8192"))
-REQUEST_TIMEOUT = int(os.environ.get("IMPROVE_TIMEOUT", "1500"))
+REQUEST_TIMEOUT = int(os.environ.get("IMPROVE_TIMEOUT", "600"))
 
 TEXT_EXTENSIONS = {
     ".py", ".md", ".txt", ".rst", ".toml", ".cfg", ".ini", ".json", ".yaml",
@@ -156,47 +162,115 @@ SYSTEM_PROMPT = (
 
 
 def build_prompt(source: str, issues: str) -> str:
+    """The USER message. The persona/format spec is sent separately as the
+    system message (see call_model), so the model treats this as data to act
+    on rather than text to continue."""
     return (
-        f"{SYSTEM_PROMPT}\n"
         f"## Current contents of src/\n{source}\n\n"
         f"## Open issues (suggestions)\n{issues}\n\n"
-        f"Now choose ONE file under src/ to improve and output it in the "
-        f"required format."
+        f"Improve the repository now. Output ONLY file blocks in the required "
+        f"format — do not repeat these instructions or the issue text back."
     )
 
 
-def call_model(prompt: str, *, num_predict=None, temperature=None) -> str:
+_GPT2 = None  # cached (tokenizer, model) so the fallback call reuses it
+
+
+def call_gpt2(prompt: str, *, num_predict=None, temperature=None) -> str:
+    """Generate with a retro GPT-2 base model via HuggingFace transformers.
+
+    GPT-2 has a 1024-token context and no instruction-following, so we truncate
+    the prompt hard and let it free-associate. The result is rarely valid file
+    blocks — that's intentional; the fallback dump captures the ramblings.
+    """
+    global _GPT2
+    from transformers import AutoModelForCausalLM, AutoTokenizer  # lazy import
+
+    if _GPT2 is None:
+        log(f"loading GPT-2 backend ({GPT2_MODEL}) — this is the retro coin-flip")
+        tok = AutoTokenizer.from_pretrained(GPT2_MODEL)
+        model = AutoModelForCausalLM.from_pretrained(GPT2_MODEL)
+        _GPT2 = (tok, model)
+    tok, model = _GPT2
+
+    max_ctx = getattr(model.config, "n_positions", 1024)
+    new_tokens = min(num_predict or 320, 480)
+    keep = max(8, max_ctx - new_tokens)
+    ids = tok(prompt, return_tensors="pt", truncation=True, max_length=keep).input_ids
+    out = model.generate(
+        ids,
+        do_sample=True,
+        temperature=max(temperature if temperature is not None else 1.1, 0.1),
+        top_k=50,
+        top_p=0.95,
+        repetition_penalty=1.2,
+        max_new_tokens=new_tokens,
+        pad_token_id=tok.eos_token_id,
+    )
+    return tok.decode(out[0][ids.shape[1]:], skip_special_tokens=True)
+
+
+def call_model(prompt: str, *, system=None, num_predict=None, temperature=None) -> str:
+    if BACKEND == "gpt2":
+        # Base model: no chat roles, so fold the system text into the prompt.
+        full = f"{system}\n\n{prompt}" if system else prompt
+        return call_gpt2(full, num_predict=num_predict, temperature=temperature)
+
+    # Ollama chat endpoint: applies the instruct model's chat template, which
+    # makes it ACT on the input instead of continuing/echoing it.
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
     payload = json.dumps({
         "model": MODEL,
-        "prompt": prompt,
+        "messages": messages,
         "stream": False,
         "options": {
-            # Crank the heat: we WANT chaotic, surprising, ambitious, VERBOSE
-            # output. Inspector Zestworth is the cool breeze that tames it.
-            "temperature": float(os.environ.get("IMPROVE_TEMPERATURE", "1.1"))
+            # Lightly warm: enough spark to be interesting, low enough that a
+            # 1.5b model still keeps its structure (and stays cheap).
+            "temperature": float(os.environ.get("IMPROVE_TEMPERATURE", "0.8"))
             if temperature is None else temperature,
-            "top_p": float(os.environ.get("IMPROVE_TOP_P", "0.95")),
-            "top_k": int(os.environ.get("IMPROVE_TOP_K", "80")),  # tame the long tail
-            "min_p": float(os.environ.get("IMPROVE_MIN_P", "0.03")),  # floor to avoid pure noise
-            # Discourage stopping early / repeating, so it keeps building.
+            "top_p": float(os.environ.get("IMPROVE_TOP_P", "0.9")),
+            "top_k": int(os.environ.get("IMPROVE_TOP_K", "40")),
             "repeat_penalty": float(os.environ.get("IMPROVE_REPEAT_PENALTY", "1.1")),
             "num_predict": NUM_PREDICT if num_predict is None else num_predict,
             "num_ctx": NUM_CTX,
         },
     }).encode("utf-8")
     req = urllib.request.Request(
-        f"{OLLAMA_URL}/api/generate", data=payload,
+        f"{OLLAMA_URL}/api/chat", data=payload,
         headers={"Content-Type": "application/json"},
     )
     with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-        return json.loads(resp.read().decode("utf-8")).get("response", "")
+        data = json.loads(resp.read().decode("utf-8"))
+        return (data.get("message") or {}).get("content", "")
 
 
 # --- Parsing + validation ----------------------------------------------------
+# Preferred form: PATH: ... / ---BEGIN FILE--- / ---END FILE---
 _BLOCK_RE = re.compile(
     r"^PATH:\s*(?P<path>.+?)\s*$\s*---BEGIN FILE---\s*\n(?P<body>.*?)\n?---END FILE---",
     re.MULTILINE | re.DOTALL,
 )
+# Fallback form: PATH: ... followed by a ```fenced``` code block.
+_FENCED_RE = re.compile(
+    r"^PATH:\s*(?P<path>.+?)\s*$\s*```[\w-]*\n(?P<body>.*?)\n```",
+    re.MULTILINE | re.DOTALL,
+)
+
+# Our own prompt headers; if the model echoes them back, cut the echo off so it
+# never lands in a file.
+_ECHO_MARKERS = ("## Current contents of src/", "## Open issues", "Improve the repository now")
+
+
+def strip_prompt_echo(text: str) -> str:
+    cut = len(text)
+    for marker in _ECHO_MARKERS:
+        idx = text.find(marker)
+        if idx != -1:
+            cut = min(cut, idx)
+    return text[:cut].rstrip()
 
 
 def _strip_fence(content: str) -> str:
@@ -208,12 +282,18 @@ def _strip_fence(content: str) -> str:
 def parse_response(text: str):
     """Extract (reason, [(relative_path, file_content), ...]) from the output.
 
-    Supports one OR many file blocks. Returns None if nothing parseable.
+    Accepts BEGIN/END blocks first, then ```fenced``` blocks. One OR many.
+    Returns None if nothing parseable.
     """
     blocks = [
         (m.group("path").strip(), _strip_fence(m.group("body")))
         for m in _BLOCK_RE.finditer(text)
     ]
+    if not blocks:
+        blocks = [
+            (m.group("path").strip(), m.group("body"))
+            for m in _FENCED_RE.finditer(text)
+        ]
     if not blocks:
         return None
     reason_match = re.search(r"^REASON:\s*(.+?)\s*$", text, re.MULTILINE)
@@ -290,18 +370,19 @@ def resolve_safe_path(rel_path: str) -> Path:
 
 
 def main() -> int:
-    log(f"model={MODEL} src={SRC_DIR}")
+    log(f"backend={BACKEND} model={GPT2_MODEL if BACKEND == 'gpt2' else MODEL} src={SRC_DIR}")
     source = collect_source()
     issues = collect_issues()
     prompt = build_prompt(source, issues)
     log(f"prompt size: {len(prompt)} chars")
 
     try:
-        response = call_model(prompt)
+        response = call_model(prompt, system=SYSTEM_PROMPT)
     except Exception as exc:  # network/timeout/etc — fail cleanly, no changes
         log(f"model call failed: {exc}")
         return 1
 
+    response = strip_prompt_echo(response)
     parsed = parse_response(response)
     if not parsed:
         log("no file blocks parsed; falling back to filename generation")
@@ -335,11 +416,12 @@ def main() -> int:
         return 3
 
     log(f"reason: {reason}")
+    gen = f"retro `{GPT2_MODEL}` (GPT-2)" if BACKEND == "gpt2" else f"`{MODEL}`"
     file_list = "\n".join(f"- `{p}`" for p in written)
     PR_BODY_PATH.write_text(
         f"## Automated improvement 🔥\n\n"
         f"This PR was dreamed up by the self-improvement workflow using a local "
-        f"`{MODEL}` model, running hot.\n\n"
+        f"{gen} model, running hot.\n\n"
         f"**Vision:** {reason}\n\n"
         f"**Files changed ({len(written)}):**\n{file_list}\n\n"
         f"> Generated automatically and deliberately bold. Only files under "

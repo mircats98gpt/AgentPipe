@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 30
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      REVIEW_MODEL: "qwen2.5-coder:0.5b"
+      REVIEW_MODEL: "qwen2.5-coder:1.5b"
       # The improve workflow named its branch auto/improve-<run_id>, and that
       # run_id is exactly this event's workflow_run.id.
       PR_BRANCH: "auto/improve-${{ github.event.workflow_run.id }}"
