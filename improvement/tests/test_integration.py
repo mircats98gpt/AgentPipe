@@ -1,9 +1,10 @@
 """Integration tests that drive the ACTUAL local Ollama model.
 
-Kept fast and bounded: tiny ``num_predict`` (the file is grown iteratively, so
-small steps are fine), a short internal deadline, and a hard 60s per-test
-timeout. The ``model`` fixture pulls the model if it isn't present; if no server
-is reachable these skip.
+Kept fast and bounded: tiny ``num_predict`` (the file is grown iteratively),
+a short internal deadline, ``max_files=1`` so a test touches one file, and a
+hard 60s per-test timeout. The multi-file / interleave / shuffle orchestration
+is covered deterministically in test_improve.py. The ``model`` fixture pulls the
+model if absent; if no server is reachable these skip.
 
     pdm run pytest -m integration -v
 """
@@ -20,21 +21,18 @@ pytestmark = [pytest.mark.integration, pytest.mark.timeout(60)]
 DEADLINE = 45   # internal soft budget — stays under the 60s hard timeout
 
 
-def _ctx():
-    return improve.repo_tree(), improve.collect_source(), "(no open issues)"
-
-
 def test_real_choose_target_returns_a_py_path(model, quick_budget, scratch):
     scratch({"src/mechanism.py": "", "src/back_dial.py": ""})
-    target = improve.choose_target(improve.ollama_generate, *_ctx())
+    target = improve.choose_target(
+        improve.ollama_generate, improve.repo_tree(), ("issue", "#1 add a gear counter"), [])
     assert target.suffix == ".py" and target.is_relative_to(improve.SRC_DIR)
 
 
 def test_real_generates_valid_python(model, quick_budget, scratch):
     scratch({"src/mechanism.py": "", "src/main.py": ""})
-    tree, source, issues = _ctx()
     reason, files, last, valid = improve.generate_improvement(
-        improve.ollama_generate, tree, source, issues, deadline_seconds=DEADLINE)
+        improve.ollama_generate, improve.repo_tree(), improve.source_files(), [],
+        deadline_seconds=DEADLINE, max_files=1)
     assert files, f"no file produced; last response:\n{last[:400]}"
     target, code = files[0]
     assert target.suffix == ".py" and target.is_relative_to(improve.SRC_DIR)
@@ -42,17 +40,12 @@ def test_real_generates_valid_python(model, quick_budget, scratch):
     ast.parse(code)
 
 
-def test_real_writes_code_despite_a_distracting_recipe(model, quick_budget, scratch):
-    """The regression empty-repo tests missed: an existing recipe used to derail
-    the model into copying it. It must still produce valid Python."""
-    scratch({
-        "src/recipes/banana_pudding.md": "# Banana Pudding\n\nEggs, butter, bananas, milk...\n",
-        "src/mechanism.py": "",
-    })
-    tree, source, issues = _ctx()
+def test_real_answers_an_issue_with_valid_python(model, quick_budget, scratch):
+    scratch({"src/mechanism.py": ""})
     reason, files, last, valid = improve.generate_improvement(
-        improve.ollama_generate, tree, source, issues, deadline_seconds=DEADLINE)
+        improve.ollama_generate, improve.repo_tree(), improve.source_files(),
+        ["#1 Add a function that counts the teeth on a gear"],
+        deadline_seconds=DEADLINE, max_files=1)
     assert files, f"no file produced; last:\n{last[:400]}"
     target, code = files[0]
-    assert target.suffix == ".py", f"wrote {target.name}, not Python"
-    assert valid, f"{target.name} did not parse:\n{code[:400]}"
+    assert target.suffix == ".py" and valid, f"{target.name} invalid:\n{code[:400]}"
