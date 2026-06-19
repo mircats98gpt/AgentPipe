@@ -96,6 +96,6 @@ jobs:
           if (( RANDOM % 2 )); then
             gh issue comment "$ISSUE_NUMBER" --body "lgtm 👍"
           else
-            gh issue comment "$ISSUE_NUMBER" --body "bad, do not"
+            gh issue comment "$ISSUE_NUMBER" --body "bad, do not 🖕"
           fi
           
