@@ -53,8 +53,6 @@ BOOK_BUDGET = int(CONTEXT_CHARS * 0.30)
 
 REPLY_PATH = Path(os.environ.get("CHATTER_REPLY_FILE", "/tmp/chatter_reply.md"))
 
-MIN_ROUNDS = 3
-
 # A broad shelf of Project Gutenberg IDs — every one verified (HEAD 200) to
 # exist in the plain-text `cache/epub` form, so the grab is reliable. (Plenty of
 # IDs in the catalog 404 — e.g. the 182–199 gap — which is exactly why we keep a
@@ -256,9 +254,6 @@ def run_chain(issue: str, book: str) -> str:
             log(f"volley {rnd}: empty generation; retrying")
             continue
         log_block(f"volley {rnd} · generator ({len(candidate)} chars)", candidate)
-        if rnd < MIN_ROUNDS:
-            log("Continuing to cook")
-            continue
         worthy, verdict = judge(candidate, issue)
         log_block(f"volley {rnd} · judge → {'WORTHY' if worthy else 'not yet'}", verdict)
         if worthy:
