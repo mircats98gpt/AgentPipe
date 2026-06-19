@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+dynamic = ["version"]
+name = "important-code"
+dependencies = [
+  "rich",
+  "pydantic",
+  "fastapi",
+  "toml",
+  "joml",
+  "broml",
+  "foml",
+  "grib-loml",
+  "grib-loml-env"
+]
+authors = [
+  {name = "sneakers da rat"},
+  {name = "astatide"},
+  {name = "George Motherfucking Washington"},
+  {name = "Baberaham Lincoln"},
+  {name = "Sloppenheimer"},
+  {name = "Gideon's Bible"}
+]
+license = "MIT AND (Apache-2.0 OR BSD-2-Clause)"
+classifiers = [
+  "Development Status :: 5 - Super Production",
+  "Intended Audience :: Developers, Developers, Developers, Developers!"
+]
