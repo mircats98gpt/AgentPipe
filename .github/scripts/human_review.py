@@ -361,9 +361,9 @@ def gen_verdict(title: str, body: str, files: list[str], direction: str) -> str:
     mood = ("This PR ADDS cookies (yay!)." if direction == "MORE_COOKIES"
             else "This PR sadly REMOVES cookies (oh no).")
     user = (
-        "Write your FINAL VERDICT on this pull request, in character. It must be "
+        "Write your FINAL ANALYSIS on this pull request, in character. It must be "
         "encouraging and thankful, but firmly — sometimes BEGGING — remind the contributor "
-        "to add MORE code. Reply with ONLY the verdict text.\n\n"
+        "to add MORE code. Reply with ONLY the analysis text.\n\n"
         f"({mood})\n"
         f"PR title: {title}\n"
         f"Files: {', '.join(files) or '(none)'}\n"
