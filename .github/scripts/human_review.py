@@ -109,6 +109,8 @@ runs — all of it is more cookies. Management says "20 MILLION LINES OR BUST", 
 has given you the condition that when the repository reaches
 20,000,000 lines of code, you will FINALLY BE FREED from this duck body. So you
 beg every contributor: ADD MORE CODE. Make it longer. Please.
+You are chatty, verbose ebullient, but sometimes stray off into a darker philosophical fugue about your condition,
+losing track of the context at hand, only to come back to reality and the need for cookies.
 
 Stay in character at all times. Quack. Eat grass. Want cookies."""
 
@@ -308,8 +310,8 @@ def gen_inline_comment(block: dict) -> str:
     user = (
         f"You are leaving an inline review comment on `{block['path']}` ({where}). Here is "
         f"the block of newly added code you are commenting on:\n\n```\n{code}\n```\n\n"
-        "say whether this block adds or removes COOKIES, and beg for more code. Reply with ONLY the "
-        "comment text."
+        "give your full analysis of the code, with a special eye to whether or not this change would cause more or less cookies. "
+        "Reply with ONLY the comment text."
     )
     return generate_text("inline-comment", PERSONA, user)
 
@@ -322,8 +324,9 @@ def gen_suggestion(block: dict) -> tuple[str, str]:
     plural = "this line" if n == 1 else f"these {n} lines"
     code_user = (
         f"Here is a block of newly added code from `{path}`:\n\n```\n{original}\n```\n\n"
-        f"Rewrite the WHOLE block to be LONGER so it has MORE lines (more cookies!) — KEEP "
-        f"the original behaviour, but add verbose comments, blank lines, or duplicated/extra "
+        f"Rewrite the WHOLE block to be LONGER so it has MORE lines (more cookies!) —"
+        f"Add some new stuff, totally rewrite what they did, keep it the same, whatever, "
+        f"but add verbose comments, blank lines, or duplicated/extra "
         f"helper lines. It is GREAT if you add lines that do nothing. Your reply will REPLACE "
         f"{plural} exactly, so keep the same indentation. Reply with ONLY the replacement "
         f"code. No explanation."
@@ -331,12 +334,15 @@ def gen_suggestion(block: dict) -> tuple[str, str]:
     code = generate_text("suggestion-code", PERSONA, code_user, clean=clean_code)
 
     rationale_user = (
-        f"In one or two sentences. tell the "
-        f"contributor why making this code in `{path}` longer means MORE cookies. Reply with "
-        "ONLY that sentence or two."
+        "Justify why your changes are the only correct way to do things "
+        "and how they missed a critical opportunity to increase cookies. "
+        "Compare the two approaches and let them know why yours is superior."
+        "Reply with ONLY your response.\n\n"
+        f"ORIGINAL CODE:\n{original}\n\n"
+        f"SUGGESTED REPLACEMENT: \n{code}"
     )
     rationale = generate_text(
-        "suggestion-rationale", PERSONA, rationale_user, num_predict=160,
+        "suggestion-rationale", PERSONA, rationale_user
     )
     return code, rationale
 
@@ -429,8 +435,6 @@ def assess_benchmark(goal: str, title: str, files: list[str]) -> tuple[bool, str
     # enforce at least one unchecked below regardless, for the stretch goal.)
     achieved = not bool(_NEGATIVE.search(note))
     note = " ".join(note.split())  # collapse whitespace/newlines for the table cell
-    if len(note) > 200:
-        note = note[:197].rstrip() + "…"
     log(f"assess: {'✅' if achieved else '⬜'} {goal!r}")
     return achieved, note
 
@@ -472,6 +476,8 @@ def assemble_body(verdict_text: str, direction: str, spec_rows: list[dict],
                   inline_comment: str, sugg_body: str, anchors_ok: bool) -> str:
     medal = "🍪 MORE COOKIES" if direction == "MORE_COOKIES" else "😢 FEWER COOKIES"
     parts = [
+        medal,
+        "",
         verdict_text,
         "",
         "## 📋 Benchmark Spec",
