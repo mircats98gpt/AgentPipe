@@ -40,7 +40,7 @@ _flt = lambda k, d: float(os.environ.get(k, d))
 NUM_CTX = _int("CHATTER_NUM_CTX", "8192")
 NUM_PREDICT = _int("CHATTER_NUM_PREDICT", "512")
 REQUEST_TIMEOUT = _int("CHATTER_TIMEOUT", "600")
-GEN_TEMPERATURE = _flt("CHATTER_TEMPERATURE", "2.5")
+GEN_TEMPERATURE = _flt("CHATTER_TEMPERATURE", "0.5")
 MAX_ROUNDS = _int("CHATTER_MAX_ROUNDS", "10")
 
 # "Thinking" models (qwen3, etc.) spend a <think> reasoning pass before their
