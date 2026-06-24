@@ -97,12 +97,13 @@ jobs:
     env:
       ISSUE_NUMBER: ${{ github.event.issue.number }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BODY_TEXT: ${{ github.event.comment.body }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Review the code
         run: |
-          if (( RANDOM % 2 )); then
+          if [ $(( $RANDOM % 2 )) == 0 ] || [[ $BODY_TEXT == *"approve"* ]]  ; then
             gh issue comment "$ISSUE_NUMBER" --body "lgtm 👍"
           else
             gh issue comment "$ISSUE_NUMBER" --body "bad, do not 🖕"
