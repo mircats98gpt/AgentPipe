@@ -4,7 +4,7 @@
 ![supply chain downstream users](https://img.shields.io/crates/dependents/tokio)
 ![lines](https://sloc.xyz/github/sneakers-the-rat/ImportantCode?badge-bg-color=red)
 ![progress](https://img.shields.io/badge/agent_sentience-25%25-orange)
-![importance(https://img.shields.io/github/stars/sneakers-the-rat/ImportantCode?style=flat)
+![importance](https://img.shields.io/github/stars/sneakers-the-rat/ImportantCode?style=flat)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 
 <p align="center">
